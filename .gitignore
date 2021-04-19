@@ -1,0 +1,7 @@
+pth
+dataset/lmdb/str/TextZoom
+.vscode
+
+*.jpg
+*.pth
+*.pyc
