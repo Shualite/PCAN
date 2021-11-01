@@ -44,9 +44,9 @@ class MORN(nn.Module):
         self.grid_y = self.grid[:, :, :, 1].unsqueeze(3)
 
     def forward(self, x, test, enhance=1, debug=False):
-
+        # TODO: upsample, align_corners=True
         if not test and np.random.random() > 0.5:
-            return nn.functional.upsample(x, size=(self.targetH, self.targetW), mode='bilinear')
+            return nn.functional.interpolate(x, size=(self.targetH, self.targetW), mode='bilinear', align_corners=True)
         if not test:
             enhance = 0
 
@@ -56,7 +56,9 @@ class MORN(nn.Module):
         grid = self.grid[:x.size(0)]
         grid_x = self.grid_x[:x.size(0)]
         grid_y = self.grid_y[:x.size(0)]
-        x_small = nn.functional.upsample(x, size=(self.targetH, self.targetW), mode='bilinear')
+        
+        # TODO: upsample, align_corners=True
+        x_small = nn.functional.interpolate(x, size=(self.targetH, self.targetW), mode='bilinear', align_corners=True)
 
         offsets = self.cnn(x_small)
         offsets_posi = nn.functional.relu(offsets, inplace=False)

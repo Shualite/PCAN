@@ -15,12 +15,12 @@ from torchvision import transforms
 from torch.autograd import Variable
 from collections import OrderedDict
 
-from model import bicubic, srcnn, vdsr, srresnet, edsr, esrgan, rdn, lapsrn, tsrn, pcan, san
+from model import bicubic, srcnn, vdsr, srresnet, edsr, esrgan, rdn, lapsrn, tsrn, pcan, san, discriminator, han
 from model import recognizer
 from model import moran
 from model import crnn
 from dataset import lmdbDataset, alignCollate_real, ConcatDataset, lmdbDataset_real, alignCollate_syn, lmdbDataset_mix
-from loss import gradient_loss, percptual_loss, image_loss
+from loss import gradient_loss, percptual_loss, image_loss, generatorLoss
 
 from utils.labelmaps import get_vocabulary, labels2strs
 
@@ -28,6 +28,7 @@ sys.path.append('../')
 from utils import util, ssim_psnr, utils_moran, utils_crnn
 import dataset.dataset as dataset
 
+from tensorboardX import SummaryWriter
 
 class TextBase(object):
     def __init__(self, config, args):
@@ -57,13 +58,37 @@ class TextBase(object):
         self.voc_type = self.config.TRAIN.voc_type
         self.alphabet = alpha_dict[self.voc_type]
         self.max_len = config.TRAIN.max_len
-        self.vis_dir = self.args.vis_dir if self.args.vis_dir is not None else self.config.TRAIN.VAL.vis_dir
+        # self.vis_dir = self.args.vis_dir if self.args.vis_dir is not None else self.config.TRAIN.VAL.vis_dir
         self.cal_psnr = ssim_psnr.calculate_psnr
         self.cal_ssim = ssim_psnr.SSIM()
         self.mask = self.args.mask
         alphabet_moran = ':'.join(string.digits+string.ascii_lowercase+'$')
         self.converter_moran = utils_moran.strLabelConverterForAttention(alphabet_moran, ':')
         self.converter_crnn = utils_crnn.strLabelConverter(string.digits + string.ascii_lowercase)
+        
+        self.rec_metirc = self.args.config.split('/')[0]
+        assert self.rec_metirc in ['aster', 'moran', 'crnn', 'all', 'for_vis']
+        
+        if not os.path.exists('ckpt'):
+            os.mkdir('ckpt')
+        if not os.path.exists(os.path.join('ckpt', self.rec_metirc)):
+            os.mkdir(os.path.join('ckpt', self.rec_metirc))
+            
+        ckpt_path = os.path.join('ckpt', self.args.config.split('.')[0])
+        if not os.path.exists(ckpt_path):
+            os.mkdir(ckpt_path)
+            
+        vis_root = os.path.join(ckpt_path, 'visualize')
+        if not os.path.exists(vis_root):
+            os.mkdir(vis_root)
+            
+        tensorboard_root = os.path.join(ckpt_path, 'tfboard')
+            
+        # tensorboard
+        self.tf_writer = SummaryWriter(tensorboard_root)
+        self.vis_root = vis_root
+        self.ckpt_path = ckpt_path
+
 
     def get_train_data(self):
         cfg = self.config.TRAIN
@@ -100,64 +125,88 @@ class TextBase(object):
     def get_test_data(self, dir_):
         cfg = self.config.TRAIN
         self.args.test_data_dir
-        test_dataset = self.load_dataset(root=dir_,
-                                         voc_type=cfg.voc_type,
-                                         max_len=cfg.max_len,
-                                         test=True,
-                                         )
-        test_loader = torch.utils.data.DataLoader(
-            test_dataset, batch_size=self.batch_size,
-            shuffle=True, num_workers=int(cfg.workers),
-            collate_fn=self.align_collate(imgH=cfg.height, imgW=cfg.width, down_sample_scale=cfg.down_sample_scale,
-                                          mask=self.mask),
-            drop_last=False)
+        if self.args.syn:
+            test_dataset = lmdbDataset_real(root=dir_,voc_type=cfg.voc_type,max_len=cfg.max_len,test=True)
+            test_loader = torch.utils.data.DataLoader(
+                test_dataset, batch_size=self.batch_size,
+                shuffle=True, num_workers=int(cfg.workers),
+                collate_fn=alignCollate_real(imgH=cfg.height, imgW=cfg.width, down_sample_scale=cfg.down_sample_scale,
+                                            mask=self.mask),
+                drop_last=False)
+        else:
+            test_dataset = self.load_dataset(root=dir_,
+                                            voc_type=cfg.voc_type,
+                                            max_len=cfg.max_len,
+                                            test=True,
+                                            )
+            test_loader = torch.utils.data.DataLoader(
+                test_dataset, batch_size=self.batch_size,
+                shuffle=True, num_workers=int(cfg.workers),
+                collate_fn=self.align_collate(imgH=cfg.height, imgW=cfg.width, down_sample_scale=cfg.down_sample_scale,
+                                            mask=self.mask),
+                drop_last=False)
         return test_dataset, test_loader
 
     def generator_init(self):
+        ret_dict = {}
+        # import ipdb;ipdb.set_trace()
         cfg = self.config.TRAIN
-        if self.args.arch == 'tsrn':
+        if self.config.MODEL.arch == 'tsrn':
             model = tsrn.TSRN(scale_factor=self.scale_factor, width=cfg.width, height=cfg.height,
                                        STN=self.args.STN, mask=self.mask, srb_nums=self.args.srb, hidden_units=self.args.hd_u)
             image_crit = image_loss.ImageLoss(gradient=self.args.gradient, loss_weight=[1, 1e-4])
-        elif self.args.arch == 'pcan':
+        elif self.config.MODEL.arch == 'pcan':
             model = pcan.PCAN(scale_factor=self.scale_factor, width=cfg.width, height=cfg.height,
                                        STN=self.args.STN, mask=self.mask, srb_nums=self.args.srb, hidden_units=self.args.hd_u)
             image_crit = image_loss.ImageLoss(gradient=self.args.gradient, edge=self.args.edge, loss_weight=[1, 1e-4, 1e-4])
-        elif self.args.arch == 'bicubic' and self.args.test:
+        elif self.config.MODEL.arch == 'bicubic' and self.args.test:
             model = bicubic.BICUBIC(scale_factor=self.scale_factor)
             image_crit = nn.MSELoss()
-        elif self.args.arch == 'srcnn':
+        elif self.config.MODEL.arch == 'srcnn':
             model = srcnn.SRCNN(scale_factor=self.scale_factor, width=cfg.width, height=cfg.height, STN=self.args.STN)
             image_crit = nn.MSELoss()
-        elif self.args.arch == 'vdsr':
+        elif self.config.MODEL.arch == 'vdsr':
             model = vdsr.VDSR(scale_factor=self.scale_factor, width=cfg.width, height=cfg.height, STN=self.args.STN)
             image_crit = nn.MSELoss()
-        elif self.args.arch == 'srres':
+        elif self.config.MODEL.arch == 'srres':
             model = srresnet.SRResNet(scale_factor=self.scale_factor, width=cfg.width, height=cfg.height,
                                       STN=self.args.STN, mask=self.mask)
             image_crit = nn.MSELoss()
-        elif self.args.arch == 'esrgan':
+        elif self.config.MODEL.arch == 'esrgan':
             model = esrgan.RRDBNet(scale_factor=self.scale_factor)
             image_crit = nn.L1Loss()
-        elif self.args.arch == 'rdn':
+        elif self.config.MODEL.arch == 'rdn':
             model = rdn.RDN(scale_factor=self.scale_factor)
             image_crit = nn.L1Loss()
-        elif self.args.arch == 'edsr':
+        elif self.config.MODEL.arch == 'edsr':
             model = edsr.EDSR(scale_factor=self.scale_factor)
             image_crit = nn.L1Loss()
-        elif self.args.arch == 'lapsrn':
+        elif self.config.MODEL.arch == 'lapsrn':
             model = lapsrn.LapSRN(scale_factor=self.scale_factor, width=cfg.width, height=cfg.height, STN=self.args.STN)
             image_crit = lapsrn.L1_Charbonnier_loss()
 
-        elif self.args.arch == 'san':
+        elif self.config.MODEL.arch == 'san':
             model = san.SAN(self.args)
+            image_crit = nn.L1Loss()
+            
+        elif self.config.MODEL.arch == 'han':
+            model = han.HAN(mask=self.mask, STN=self.args.STN, cfg=self.config)
+            # image_crit = image_loss.ImageLoss(gradient=self.args.gradient, loss_weight=[1, 1e-4])
             image_crit = nn.L1Loss()
         else:
             raise ValueError
-        if self.args.arch != 'bicubic':
+
+        if self.config.MODEL.adversarial_epoch>=0:
+            netD = discriminator.Discriminator(self.mask)
+            netD = netD.to(self.device)
+            netD = torch.nn.DataParallel(netD, device_ids=range(cfg.ngpu))
+            ret_dict['netD'] = netD
+            
+        if self.config.MODEL.arch != 'bicubic':
             model = model.to(self.device)
             image_crit.to(self.device)
-            if cfg.ngpu >= 1:
+            # import ipdb;ipdb.set_trace()
+            if cfg.ngpu > 1:
                 model = torch.nn.DataParallel(model, device_ids=range(cfg.ngpu))
                 image_crit = torch.nn.DataParallel(image_crit, device_ids=range(cfg.ngpu))
             if self.resume is not '':
@@ -167,7 +216,11 @@ class TextBase(object):
                 else:
                     model.load_state_dict(
                         {'module.' + k: v for k, v in torch.load(self.resume)['state_dict_G'].items()})
-        return {'model': model, 'crit': image_crit}
+
+        ret_dict['model'] = model
+        ret_dict['crit'] = image_crit
+            
+        return ret_dict
 
     def optimizer_init(self, model):
         cfg = self.config.TRAIN
@@ -231,23 +284,36 @@ class TextBase(object):
                     torchvision.utils.save_image(vis_im, os.path.join(out_root, im_name), padding=0)
         return visualized
 
-    def save_checkpoint(self, netG, epoch, iters, best_acc_dict, best_model_info, is_best, converge_list):
-        ckpt_path = os.path.join('ckpt', self.vis_dir)
-        if not os.path.exists(ckpt_path):
-            os.mkdir(ckpt_path)
-        save_dict = {
-            'state_dict_G': netG.module.state_dict(),
-            'info': {'arch': self.args.arch, 'iters': iters, 'epochs': epoch, 'batch_size': self.batch_size,
-                     'voc_type': self.voc_type, 'up_scale_factor': self.scale_factor},
-            'best_history_res': best_acc_dict,
-            'best_model_info': best_model_info,
-            'param_num': sum([param.nelement() for param in netG.module.parameters()]),
-            'converge': converge_list
-        }
-        if is_best:
-            torch.save(save_dict, os.path.join(ckpt_path, 'model_best.pth'))
+    def save_checkpoint(self, netG, epoch, iters, best_acc_dict, best_model_info, is_best, converge_list, order=None):
+        # import ipdb;ipdb.set_trace()
+        if order is None:
+            save_dict = {
+                'state_dict_G': netG.module.state_dict(),
+                'info': {'arch': self.config.MODEL.arch, 'iters': iters, 'epochs': epoch, 'batch_size': self.batch_size,
+                        'voc_type': self.voc_type, 'up_scale_factor': self.scale_factor},
+                'best_history_res': best_acc_dict,
+                'best_model_info': best_model_info,
+                'param_num': sum([param.nelement() for param in netG.module.parameters()]),
+                'converge': converge_list
+            }
+            if is_best:
+                torch.save(save_dict, os.path.join(self.ckpt_path, 'model_best.pth'))
+            else:
+                torch.save(save_dict, os.path.join(self.ckpt_path, 'checkpoint.pth'))
         else:
-            torch.save(save_dict, os.path.join(ckpt_path, 'checkpoint.pth'))
+            save_dict = {
+                'state_dict_G': netG.module.state_dict(),
+                'info': {'arch': self.config.MODEL.arch, 'iters': iters, 'epochs': epoch, 'batch_size': self.batch_size,
+                        'voc_type': self.voc_type, 'up_scale_factor': self.scale_factor},
+                'best_history_res': best_acc_dict,
+                'best_model_info': best_model_info,
+                'param_num': sum([param.nelement() for param in netG.module.parameters()]),
+                'converge': converge_list
+            }
+            if is_best:
+                torch.save(save_dict, os.path.join(self.ckpt_path, '{}_best.pth'.format(order)))
+            else:
+                torch.save(save_dict, os.path.join(self.ckpt_path, '{}_checkpoint.pth'.format(order)))
 
     def MORAN_init(self):
         cfg = self.config.TRAIN
@@ -271,7 +337,8 @@ class TextBase(object):
 
     def parse_moran_data(self, imgs_input):
         batch_size = imgs_input.shape[0]
-        imgs_input = torch.nn.functional.interpolate(imgs_input, (32, 100), mode='bicubic')
+        # TODO: align_corners=True
+        imgs_input = torch.nn.functional.interpolate(imgs_input, (32, 100), mode='bicubic', align_corners=True)
         R = imgs_input[:, 0:1, :, :]
         G = imgs_input[:, 1:2, :, :]
         B = imgs_input[:, 2:3, :, :]
@@ -293,7 +360,8 @@ class TextBase(object):
         return model
 
     def parse_crnn_data(self, imgs_input):
-        imgs_input = torch.nn.functional.interpolate(imgs_input, (32, 100), mode='bicubic')
+        # TODO: align_corners=True
+        imgs_input = torch.nn.functional.interpolate(imgs_input, (32, 100), mode='bicubic', align_corners=True)
         R = imgs_input[:, 0:1, :, :]
         G = imgs_input[:, 1:2, :, :]
         B = imgs_input[:, 2:3, :, :]

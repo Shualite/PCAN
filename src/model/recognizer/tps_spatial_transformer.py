@@ -98,9 +98,9 @@ class TPSSpatialTransformer(nn.Module):
     self.register_buffer('target_control_points', target_control_points)
 
   def forward(self, input, source_control_points):
-    assert source_control_points.ndimension() == 3
-    assert source_control_points.size(1) == self.num_control_points
-    assert source_control_points.size(2) == 2
+    # assert source_control_points.ndimension() == 3
+    # assert source_control_points.size(1) == self.num_control_points
+    # assert source_control_points.size(2) == 2
     batch_size = source_control_points.size(0)
 
     Y = torch.cat([source_control_points, self.padding_matrix.expand(batch_size, 3, 2)], 1)

@@ -20,11 +20,10 @@ def main(config, args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='')
-    parser.add_argument('--arch', default='tsrn', choices=['tsrn', 'bicubic', 'srcnn', 'vdsr', 'srres', 'esrgan', 'rdn',
-                                                           'edsr', 'lapsrn', 'san', 'pcan'])
+    parser.add_argument('--arch', default='tsrn', choices=['tsrn', 'bicubic', 'srcnn', 'vdsr', 'srres', 'esrgan', 'rdn', 'edsr', 'lapsrn', 'san', 'han', 'pcan'])
     parser.add_argument('--test', action='store_true', default=False)
-    parser.add_argument('--test_data_dir', type=str, default='../dataset/lmdb/str/TextZoom/test/medium/', help='')
-    parser.add_argument('--batch_size', type=int, default=128, help='')
+    parser.add_argument('--test_data_dir', type=str, default=None, help='')
+    parser.add_argument('--batch_size', type=int, default=None, help='')
     parser.add_argument('--resume', type=str, default=None, help='')
     parser.add_argument('--vis_dir', type=str, default=None, help='')
     parser.add_argument('--rec', default='aster', choices=['aster', 'moran', 'crnn'])
@@ -49,8 +48,10 @@ if __name__ == '__main__':
     parser.add_argument('--res_scale', type=float, default=1, help='residual scaling')
     parser.add_argument('--scale', default=2, help='super resolution scale')
 
+    parser.add_argument('--config', type=str, default='aster/debug.yaml')
+
     args = parser.parse_args()
-    config_path = os.path.join('config', 'super_resolution.yaml')
+    config_path = os.path.join('config', args.config)
     config = yaml.load(open(config_path, 'r'), Loader=yaml.Loader)
     config = EasyDict(config)
     main(config, args)

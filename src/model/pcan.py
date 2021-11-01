@@ -36,9 +36,9 @@ class FeatureSelection(nn.Module):
         y = self.fc(y).view(b, c, 1, 1)
         return x * y.expand_as(x)
 
-class GOTA(nn.Module):
+class HOTA(nn.Module):
     def __init__(self, n_feats, conv=default_conv):
-        super(GOTA, self).__init__()
+        super(HOTA, self).__init__()
         f = n_feats // 4
         self.conv1 = conv(n_feats, f, kernel_size=1)
         self.conv_f = conv(f, f, kernel_size=1)
@@ -60,6 +60,7 @@ class GOTA(nn.Module):
         self.conv_reduce = conv(f*6, f, kernel_size=3, padding=1)
 
     def forward(self, x):
+        # import ipdb;ipdb.set_trace()
         res = x
         c1_ = (self.conv1(x))
         
@@ -90,6 +91,7 @@ class GOTA(nn.Module):
         return res * m
 
 
+
 class PCAN(nn.Module):
     def __init__(self, scale_factor=2, width=128, height=32, STN=False, srb_nums=5, mask=True, hidden_units=32):
         super(PCAN, self).__init__()
@@ -107,7 +109,7 @@ class PCAN(nn.Module):
         # for i in range(srb_nums):
         #     setattr(self, 'block%d' % (i + 2), RecurrentResidualBlock(2*hidden_units))
 
-        # PSRB
+        # PSPB
         for i in range(srb_nums):
             setattr(self, 'block%d' % (i + 2), PCAB(2*hidden_units, i+2))
 
@@ -136,22 +138,14 @@ class PCAN(nn.Module):
                 in_planes=in_planes,
                 num_ctrlpoints=num_control_points,
                 activation='none')
-        self.spatial_attention = GOTA(n_feats=2*hidden_units*srb_nums)
+        self.spatial_attention = HOTA(n_feats=2*hidden_units*srb_nums)
 
     def forward(self, x):
-        # embed()
+        # import ipdb;ipdb.set_trace()
         if self.stn and self.training:
             x = F.interpolate(x, self.tps_inputsize, mode='bilinear', align_corners=True)
             _, ctrl_points_x = self.stn_head(x)
             x, _ = self.tps(x, ctrl_points_x)
-        
-        # block = {'1': self.block1(x)}
-        # for i in range(self.srb_nums + 1):
-        #     block[str(i + 2)] = getattr(self, 'block%d' % (i + 2))(block[str(i + 1)])
-
-        # block[str(self.srb_nums + 3)] = getattr(self, 'block%d' % (self.srb_nums + 3)) \
-        #     ((block['1'] + block[str(self.srb_nums + 2)]))
-        # output = torch.tanh(block[str(self.srb_nums + 3)])
 
         x = self.block1(x)
         x2 = self.block2(x)
@@ -164,13 +158,13 @@ class PCAN(nn.Module):
         output = torch.tanh(self.block8(x7+x))
         return output
 
-
 class PCAB(nn.Module):
     def __init__(self, channels, no):
         super(PCAB, self).__init__()
         self.conv1 = nn.Conv2d(channels, channels, kernel_size=3, padding=1)
         self.bn1 = nn.BatchNorm2d(channels)
         self.prelu = mish()
+
         self.conv2_w = nn.Conv2d(channels, channels, kernel_size=3, padding=1)
         self.bn2_w = nn.BatchNorm2d(channels)
         self.conv2_h = nn.Conv2d(channels, channels, kernel_size=3, padding=1)
@@ -249,6 +243,7 @@ class GruBlock(nn.Module):
         x = x.view(b[0], b[1], b[2], b[3])
         x = x.permute(0, 3, 1, 2)
         return x
+
 
 
 if __name__ == '__main__':

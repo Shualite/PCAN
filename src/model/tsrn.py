@@ -58,7 +58,7 @@ class TSRN(nn.Module):
                 activation='none')
 
     def forward(self, x):
-        # embed()
+        
         if self.stn and self.training:
             x = F.interpolate(x, self.tps_inputsize, mode='bilinear', align_corners=True)
             _, ctrl_points_x = self.stn_head(x)

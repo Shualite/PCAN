@@ -1,5 +1,6 @@
 MODEL:
-
+  arch: pcan
+  adversarial_epoch: -1 # -1 close
 
 TRAIN:
   train_data_dir: [
@@ -12,12 +13,11 @@ TRAIN:
   epochs: 500
   cuda: True
   ngpu: 1
-  workers: 2
+  workers: 8
   resume: ''
-  ckpt_dir: './ckpt/'
   voc_type: 'all' #'digits lower upper all'
-  saveInterval: 200
-  displayInterval: 100 #display loss
+  saveInterval: 4000
+  displayInterval: 400 #display loss
   adadelta: False
   lr: 0.001
   adam: True
@@ -33,9 +33,9 @@ TRAIN:
       '../dataset/lmdb/str/TextZoom/test/easy',
       '../dataset/lmdb/str/TextZoom/test/medium',
     ]
-    n_vis: 10
-    vis_dir: 'demo'
-    valInterval: 200 #-1, val at the end of epoch
+    n_vis: -1
+    valInterval_start: 200  # unit epochs
+    valInterval_epochs: 3  # unit epochs
     rec_pretrained: '../pth/demo.pth.tar'
     moran_pretrained: '../pth/moran.pth'
     crnn_pretrained: '../pth/crnn.pth'
@@ -43,6 +43,9 @@ TRAIN:
 TEST:
   checkpoint: ''
   test_data_dir: [
+    '../dataset/lmdb/str/TextZoom/test/hard',
+    '../dataset/lmdb/str/TextZoom/test/easy',
+    '../dataset/lmdb/str/TextZoom/test/medium',
   ]
 
 CONVERT:

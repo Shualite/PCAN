@@ -1,0 +1,54 @@
+MODEL:
+  arch: tsrn
+  adversarial_epoch: -1 # -1 close
+
+TRAIN:
+  train_data_dir: [
+    '../dataset/lmdb/str/TextZoom/train1',
+    '../dataset/lmdb/str/TextZoom/train2',
+  ]
+  batch_size: 128
+  width: 128
+  height: 32
+  epochs: 500
+  cuda: True
+  ngpu: 1
+  workers: 8
+  resume: ''
+  voc_type: 'all' #'digits lower upper all'
+  saveInterval: 4000
+  displayInterval: 400 #display loss
+  adadelta: False
+  lr: 0.001
+  adam: True
+  beta1: 0.5
+  manualSeed: 1234
+  max_len: 100
+  keep_ratio: False
+  down_sample_scale: 2
+
+  VAL:
+    val_data_dir: [
+      '../dataset/lmdb/str/TextZoom/test/hard',
+      '../dataset/lmdb/str/TextZoom/test/easy',
+      '../dataset/lmdb/str/TextZoom/test/medium',
+    ]
+    n_vis: -1
+    valInterval_start: 200  # unit epochs
+    valInterval_epochs: 6  # unit epochs
+    rec_pretrained: '../pth/demo.pth.tar'
+    moran_pretrained: '../pth/moran.pth'
+    crnn_pretrained: '../pth/crnn.pth'
+
+TEST:
+  checkpoint: ''
+  test_data_dir: [
+    '../dataset/lmdb/str/TextZoom/test/hard',
+    '../dataset/lmdb/str/TextZoom/test/easy',
+    '../dataset/lmdb/str/TextZoom/test/medium',
+  ]
+
+CONVERT:
+  image_dir:
+  lmdb_dir:
+  n_convert: 10

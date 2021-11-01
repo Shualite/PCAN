@@ -5,3 +5,6 @@ dataset/lmdb/str/TextZoom
 *.jpg
 *.pth
 *.pyc
+*.pt
+*.whl
+ckpt

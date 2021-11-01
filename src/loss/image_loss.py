@@ -21,6 +21,7 @@ class ImageLoss(nn.Module):
         self.loss_weight = loss_weight
 
     def forward(self, out_images, target_images):
+        
         loss = self.loss_weight[0] * self.mse(out_images, target_images)
         if self.gradient:
             loss += self.loss_weight[1] * self.GPLoss(out_images[:, :3, :, :], target_images[:, :3, :, :])
